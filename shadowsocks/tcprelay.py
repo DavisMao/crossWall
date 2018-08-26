@@ -590,9 +590,26 @@ class TCPRelayHandler(object):
             return
         self._update_activity(len(data))
         if not is_local:
-            data = self._encryptor.decrypt(data)
-            if not data:
-                return
+
+            #########################################
+            ##           redirect here             ##
+            #########################################
+
+            # get next hop
+
+            nexthop = ""
+
+            localAddr,localPort = self._local_sock.getsockname()
+
+            if nexthop != localAddr:
+
+                print("")
+                # redirect to nexthop
+
+            else:
+                data = self._encryptor.decrypt(data)
+                if not data:
+                    return
         # 检查状态
         if self._stage == STAGE_STREAM:
             self._handle_stage_stream(data)
