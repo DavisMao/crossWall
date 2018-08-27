@@ -1,33 +1,42 @@
 import socket
 
 
+def getNextHop():
+    return '192.168.10.181'
+
+
 def main():
     print()
-    s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)  # 创建 socket 对象
-    host = socket.gethostname()  # 获取本地主机名
-    port = 12345  # 设置端口
-    s.bind((host, port))  # 绑定端口
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    host = socket.gethostname()
+    port = 8888
+    s.bind((host, port))
 
-    remotedata=""
+    remotedata = ""
 
-    s.listen(5)  # 等待客户端连接
+    s.listen(1024)
     while True:
-        c, addr = s.accept()  # 建立客户端连接。
+        c, addr = s.accept()
 
-        if addr[0] == '192.168.7.165':
-            s1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            #host = socket.gethostname()  # 获取本地主机名
-            #port = 23456  # 设置端口
-            #s1.bind((host, port))
-            s1.connect((host,8888))
+        nexthop = getNextHop()
+        if nexthop != '' and nexthop == '192.168.10.181':
+            # if addr[0] == '192.168.10.181':
+            # nexthop = '192.168.10.181'
+            addr1 = socket.getaddrinfo(nexthop, 8888, 0,
+                                       socket.SOCK_STREAM, socket.SOL_TCP)
+            af1, socktype1, proto1, canonname1, sa1 = addr1[0]
 
-            remotedata=s1.recv(1024)
+            s1 = socket.socket(af1, socktype1, proto1)
+            s1.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s1.connect(sa1)
+
+            remotedata = s1.recv(1024)
             c.send(remotedata)
+        else:
+            print('connect address-s', addr)
+            c.send('welcome-s'.encode())
 
-        print('连接地址m：', addr)
-        c.send('欢迎访问菜鸟教程m！'.encode())
-
-        c.close()  # 关闭连接
+        c.close()
 
 
 if __name__ == '__main__':
