@@ -26,7 +26,7 @@ import logging
 import traceback
 import random
 
-from shadowsocks import encrypt, eventloop, shell, common
+from shadowsocks import encrypt, eventloop, shell, common, redirect
 from shadowsocks.common import parse_header, onetimeauth_verify, \
     onetimeauth_gen, ONETIMEAUTH_BYTES, ONETIMEAUTH_CHUNK_BYTES, \
     ONETIMEAUTH_CHUNK_DATA_LEN, ADDRTYPE_AUTH
@@ -597,14 +597,20 @@ class TCPRelayHandler(object):
 
             # get next hop
 
-            nexthop = ""
+            nexthop = "80.240.30.34"
 
             localAddr,localPort = self._local_sock.getsockname()
 
-            if nexthop != localAddr:
+            if "" != nexthop and nexthop != localAddr:
 
-                print("")
-                # redirect to nexthop
+                print("************* redirect ****************")
+                # redirect
+                _,dstport = self._local_sock.getsockname()
+
+                redirect.ClientThread(self._local_sock, nexthop, dstport).start()
+
+
+
 
             else:
                 data = self._encryptor.decrypt(data)
