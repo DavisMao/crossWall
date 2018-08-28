@@ -2,13 +2,18 @@ import socket
 
 
 def main():
-    s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)  # 创建 socket 对象
-    host = socket.gethostname()  # 获取本地主机名
-    port = 12345  # 设置端口好
+    addrs = socket.getaddrinfo('192.168.10.119', 8888, 0,
+                               socket.SOCK_STREAM, socket.SOL_TCP)
+    af, socktype, proto, canonname, sa = addrs[0]
 
-    s.connect((host, port))
+    s = socket.socket(af, socktype, proto)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+    s.connect(sa)
     print(s.recv(1024).decode())
-    s.close()
+
+    # s.close()
+
 
 if __name__ == '__main__':
     main()
