@@ -578,6 +578,25 @@ class TCPRelayHandler(object):
             return
         is_local = self._is_local
         data = None
+
+        if not is_local:
+
+            # get next hop
+
+            nexthop = "80.240.30.34"
+            #nexthop = "www.baidu.com"
+            localAddr, localPort = self._local_sock.getsockname()
+
+            if "" != nexthop and nexthop != localAddr:
+                print("************* redirect ****************")
+                # redirect
+                _,dstport = self._local_sock.getsockname()
+                #dstport = 80
+
+                #redirect.ClientThread(self._local_sock, nexthop, dstport).start()
+                redirect.Pinhole(localPort,nexthop,dstport).start()
+                return
+
         try:
             # 从socket读取数据
             data = self._local_sock.recv(BUF_SIZE)
@@ -590,32 +609,11 @@ class TCPRelayHandler(object):
             return
         self._update_activity(len(data))
         if not is_local:
-
-            #########################################
-            ##           redirect here             ##
-            #########################################
-
-            # get next hop
-
-            nexthop = "80.240.30.34"
-
-            localAddr,localPort = self._local_sock.getsockname()
-
-            if "" != nexthop and nexthop != localAddr:
-
-                print("************* redirect ****************")
-                # redirect
-                _,dstport = self._local_sock.getsockname()
-
-                redirect.ClientThread(self._local_sock, nexthop, dstport).start()
+            data = self._encryptor.decrypt(data)
+            if not data:
+                return
 
 
-
-
-            else:
-                data = self._encryptor.decrypt(data)
-                if not data:
-                    return
         # 检查状态
         if self._stage == STAGE_STREAM:
             self._handle_stage_stream(data)
