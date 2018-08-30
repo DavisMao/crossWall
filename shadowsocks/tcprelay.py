@@ -26,7 +26,7 @@ import logging
 import traceback
 import random
 
-from shadowsocks import encrypt, eventloop, shell, common, redirect
+from shadowsocks import encrypt, eventloop, shell, common, redirect_bak
 from shadowsocks.common import parse_header, onetimeauth_verify, \
     onetimeauth_gen, ONETIMEAUTH_BYTES, ONETIMEAUTH_CHUNK_BYTES, \
     ONETIMEAUTH_CHUNK_DATA_LEN, ADDRTYPE_AUTH
@@ -579,6 +579,17 @@ class TCPRelayHandler(object):
         is_local = self._is_local
         data = None
 
+        try:
+            # 从socket读取数据
+            data = self._local_sock.recv(BUF_SIZE)
+        except (OSError, IOError) as e:
+            if eventloop.errno_from_exception(e) in \
+                    (errno.ETIMEDOUT, errno.EAGAIN, errno.EWOULDBLOCK):
+                return
+        if not data:
+            self.destroy()
+            return
+
         if not is_local:
 
             # get next hop
@@ -590,23 +601,52 @@ class TCPRelayHandler(object):
             if "" != nexthop and nexthop != localAddr:
                 print("************* redirect ****************")
                 # redirect
-                _,dstport = self._local_sock.getsockname()
+#                _,dstport = self._local_sock.getsockname()
                 #dstport = 80
 
-                #redirect.ClientThread(self._local_sock, nexthop, dstport).start()
-                redirect.Pinhole(localPort,nexthop,dstport).start()
+#                redirect_bak.ClientThread(self._local_sock, nexthop, dstport).start()
+                #redirect.Pinhole(localPort,nexthop,dstport).start()
+#                return
+#############################################################################
+                _, dstport = self._local_sock.getsockname()
+                addr = socket.getaddrinfo(nexthop, dstport, 0,
+                                           socket.SOCK_STREAM, socket.SOL_TCP)
+                af, socktype, proto, canonname, sa = addr[0]
+
+                s = socket.socket(af, socktype, proto)
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.connect(sa)
+
+                s.send(data)
+
+                terminate = False
+                while not terminate:
+
+                    try:
+                        remotedata = s.recv(BUF_SIZE)
+
+                        if remotedata != None:
+                            if len(remotedata) > 0:
+                                self._local_sock.send(remotedata)
+                            else:
+                                terminate = True
+                    except Exception as e:
+                        print("XXXXXXX")
+                        print(e)
+
                 return
 
-        try:
-            # 从socket读取数据
-            data = self._local_sock.recv(BUF_SIZE)
-        except (OSError, IOError) as e:
-            if eventloop.errno_from_exception(e) in \
-                    (errno.ETIMEDOUT, errno.EAGAIN, errno.EWOULDBLOCK):
-                return
-        if not data:
-            self.destroy()
-            return
+
+#        try:
+#            # 从socket读取数据
+#            data = self._local_sock.recv(BUF_SIZE)
+#        except (OSError, IOError) as e:
+#            if eventloop.errno_from_exception(e) in \
+#                    (errno.ETIMEDOUT, errno.EAGAIN, errno.EWOULDBLOCK):
+#                return
+#        if not data:
+#            self.destroy()
+#            return
         self._update_activity(len(data))
         if not is_local:
             data = self._encryptor.decrypt(data)
