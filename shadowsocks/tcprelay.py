@@ -26,7 +26,7 @@ import logging
 import traceback
 import random
 
-from shadowsocks import encrypt, eventloop, shell, common, redirect_bak
+from shadowsocks import encrypt, eventloop, shell, common, redirect
 from shadowsocks.common import parse_header, onetimeauth_verify, \
     onetimeauth_gen, ONETIMEAUTH_BYTES, ONETIMEAUTH_CHUNK_BYTES, \
     ONETIMEAUTH_CHUNK_DATA_LEN, ADDRTYPE_AUTH
@@ -413,7 +413,7 @@ class TCPRelayHandler(object):
             self._dns_resolver.resolve(remote_addr,
                                        self._handle_dns_resolved)
 
-    def _create_remote_socket(self, ip, port):
+    def  _create_remote_socket(self, ip, port):
         addrs = socket.getaddrinfo(ip, port, 0, socket.SOCK_STREAM,
                                    socket.SOL_TCP)
         if len(addrs) == 0:
@@ -429,6 +429,8 @@ class TCPRelayHandler(object):
         remote_sock.setblocking(False)
         remote_sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
         return remote_sock
+
+
 
     @shell.exception_handle(self_=True)
     def _handle_dns_resolved(self, result, error):
@@ -459,21 +461,46 @@ class TCPRelayHandler(object):
             self._update_stream(STREAM_UP, WAIT_STATUS_READING)
             # TODO when there is already data in this packet
         else:
-            # else do connect
-            remote_sock = self._create_remote_socket(remote_addr,
-                                                     remote_port)
-            try:
-                remote_sock.connect((remote_addr, remote_port))
-            except (OSError, IOError) as e:
-                if eventloop.errno_from_exception(e) == \
-                        errno.EINPROGRESS:
-                    pass
-            self._loop.add(remote_sock,
-                           eventloop.POLL_ERR | eventloop.POLL_OUT,
-                           self._server)
-            self._stage = STAGE_CONNECTING
-            self._update_stream(STREAM_UP, WAIT_STATUS_READWRITING)
-            self._update_stream(STREAM_DOWN, WAIT_STATUS_READING)
+            # 获取下一跳地址
+
+            nexthop = self._getNextHop(remote_addr)
+            destPort = ""
+
+            if nexthop != "":
+
+                print("enter redirect loop")
+                redirect.Pinhole(self._local_sock, nexthop, destPort)
+
+
+
+                # next_sock = self._create_remote_socket(nexthop, remote_port)
+                # try:
+                #     next_sock.connect((nexthop, remote_port))
+                # except (OSError, IOError) as e:
+                #     if eventloop.errno_from_exception(e) == \
+                #             errno.EINPROGRESS:
+                #         pass
+                # self._loop.add(next_sock,
+                #                eventloop.POLL_ERR | eventloop.POLL_OUT,
+                #                self._server)
+
+            else:
+
+                # else do connect
+                remote_sock = self._create_remote_socket(remote_addr,
+                                                         remote_port)
+                try:
+                    remote_sock.connect((remote_addr, remote_port))
+                except (OSError, IOError) as e:
+                    if eventloop.errno_from_exception(e) == \
+                            errno.EINPROGRESS:
+                        pass
+                self._loop.add(remote_sock,
+                               eventloop.POLL_ERR | eventloop.POLL_OUT,
+                               self._server)
+                self._stage = STAGE_CONNECTING
+                self._update_stream(STREAM_UP, WAIT_STATUS_READWRITING)
+                self._update_stream(STREAM_DOWN, WAIT_STATUS_READING)
 
     def _write_to_sock_remote(self, data):
         self._write_to_sock(data, self._remote_sock)
@@ -571,6 +598,48 @@ class TCPRelayHandler(object):
         self._write_to_sock(b'\x05\00', self._local_sock)
         self._stage = STAGE_ADDR
 
+    @shell.exception_handle(self_=True)
+    def _handle_dns_resolved_pre(self, result, error):
+        if error:
+            addr, port = self._client_address[0], self._client_address[1]
+            logging.error('%s when handling connection from %s:%d' %
+                          (error, addr, port))
+            self.destroy()
+            return
+        if not (result and result[1]):
+            self.destroy()
+            return
+
+        ip = result[1]
+        return ip
+
+    def _handle_redirection(self, data):
+
+        header_result = parse_header(data)
+        if header_result is None:
+            raise Exception('can not parse header')
+        # 得到ss local想要连接到remote主机和数据
+        addrtype, remote_addr, remote_port, header_length = header_result
+        logging.info('origin request : connecting %s:%d from %s:%d' %
+                     (common.to_str(remote_addr), remote_port,
+                      self._client_address[0], self._client_address[1]))
+
+        dest_ip = self._dns_resolver.resolve(remote_addr,
+                                   self._handle_dns_resolved_pre)
+        dest_port = ""
+
+        nexthop = self._getNextHop(self, dest_ip)
+
+        if nexthop != "":
+
+          redirect.Pinhole(self._local_sock, nexthop, dest_port)
+
+
+
+    def _getNextHop(self, ip):
+        nexthop = ""
+        return nexthop
+
     def _on_local_read(self):
         # handle all local read events and dispatch them to methods for
         # each stage
@@ -578,7 +647,6 @@ class TCPRelayHandler(object):
             return
         is_local = self._is_local
         data = None
-
         try:
             # 从socket读取数据
             data = self._local_sock.recv(BUF_SIZE)
@@ -589,69 +657,14 @@ class TCPRelayHandler(object):
         if not data:
             self.destroy()
             return
-
-        if not is_local:
-
-            # get next hop
-
-            nexthop = "80.240.30.34"
-            #nexthop = "www.baidu.com"
-            localAddr, localPort = self._local_sock.getsockname()
-
-            if "" != nexthop and nexthop != localAddr:
-                print("************* redirect ****************")
-                # redirect
-#                _,dstport = self._local_sock.getsockname()
-                #dstport = 80
-
-#                redirect_bak.ClientThread(self._local_sock, nexthop, dstport).start()
-                #redirect.Pinhole(localPort,nexthop,dstport).start()
-#                return
-#############################################################################
-                _, dstport = self._local_sock.getsockname()
-                addr = socket.getaddrinfo(nexthop, dstport, 0,
-                                           socket.SOCK_STREAM, socket.SOL_TCP)
-                af, socktype, proto, canonname, sa = addr[0]
-
-                s = socket.socket(af, socktype, proto)
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                s.connect(sa)
-
-                s.send(data)
-
-                terminate = False
-                while not terminate:
-
-                    try:
-                        remotedata = s.recv(BUF_SIZE)
-
-                        if remotedata != None:
-                            if len(remotedata) > 0:
-                                self._local_sock.send(remotedata)
-                            else:
-                                terminate = True
-                    except Exception as e:
-                        print("XXXXXXX")
-                        print(e)
-
-                return
-
-
-#        try:
-#            # 从socket读取数据
-#            data = self._local_sock.recv(BUF_SIZE)
-#        except (OSError, IOError) as e:
-#            if eventloop.errno_from_exception(e) in \
-#                    (errno.ETIMEDOUT, errno.EAGAIN, errno.EWOULDBLOCK):
-#                return
-#        if not data:
-#            self.destroy()
-#            return
         self._update_activity(len(data))
         if not is_local:
             data = self._encryptor.decrypt(data)
             if not data:
                 return
+
+
+        self._handle_redirection(self, data)
 
 
         # 检查状态
